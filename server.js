@@ -5,33 +5,35 @@ var server = http.createServer();
 var io = require('socket.io')(server);
 
 var clients = {
-    clients: {},
+    sockets: {},
     add: function(key, client) {
-        this.clients[key] = client;
+        this.sockets[key] = client;
     },
     get: function(key) {
-        if (this.clients.hasOwnProperty(key)) {
-            return this.clients[key];
+        if (this.sockets.hasOwnProperty(key)) {
+            return this.sockets[key];
         } else {
             return null;
         }
     },
     del: function(key) {
-        if (this.clients.hasOwnProperty(key)) {
-            delete this.clients[key];
+        if (this.sockets.hasOwnProperty(key)) {
+            delete this.sockets[key];
         }
     }
 };
 
 io.on('connection', function(client){
     client.on('register_session', function(data) {
-        var vmSession = data.toSource().trim();
-        if (!empty(vmSession)) {
-            if (clients.get(vmSession)) {
-                clients.get(vmSession).disconnect();
+        if (data) {
+            var vmSession = data.toString().trim();
+            if (vmSession) {
+                if (clients.get(vmSession)) {
+                    clients.get(vmSession).disconnect();
+                }
+                clients.add(vmSession, client);
+                client.vmSession = vmSession;
             }
-            clients.add(vmSession, client);
-            client.vmSession = vmSession;
         }
     });
     client.on('disconnect', function(){
@@ -46,20 +48,28 @@ server.listen(10001);
 
 var net = require('net');
 net.createServer(function(sock) {
-
-    console.log('CONNECTED: ' + sock.remoteAddress +':'+ sock.remotePort);
-
     sock.on('data', function(data) {
-        console.log('DATA ' + sock.remoteAddress + ': ' + data);
-        // Write the data back to the socket, the client will receive it as data from the server
+        try {
+            data = JSON.parse(data);
+            var eventName = 'message',
+                eventData;
+            if (data.hasOwnProperty('event')) {
+                eventName = data.event;
+            } else {
+                eventData = data;
+            }
+            if (data.hasOwnProperty('data')) {
+                eventData = data.data;
+            }
+            if (data.hasOwnProperty('vmSession')) {
+                var client = clients.get(data.vmSession);
+                if (client) {
+                    client.emit(eventName, eventData);
+                }
+            } else {
+                io.emit(eventName, eventData);
+            }
+        } catch (e) { console.log(e); }
         sock.write('done');
     });
-
-    // Add a 'close' event handler to this instance of socket
-    sock.on('close', function(data) {
-        console.log('CLOSED: ' + sock.remoteAddress +' '+ sock.remotePort);
-    });
-
 }).listen(10002, '0.0.0.0');
-
-console.log('net started');
